@@ -188,6 +188,11 @@
 
 #### 部署 CORS 代理 (Cloudflare Workers)
 
+> ⚠️ **关于流量限制的风险提示**：
+> Cloudflare 免费版 Workers 每日有请求限制 (10万次)，且根据条款**不建议**用于大规模非 HTML 内容（如视频流）的代理。
+> - **个人自用**：通常没问题。
+> - **多人/高频使用**：强烈建议使用下方的 **VPS / Node.js** 部署方案，以免被封号。
+
 1.  **登录 [Cloudflare Dashboard](https://dash.cloudflare.com)**
     - 进入 **Workers & Pages** → **Create Worker**
     - 命名如 `cors-proxy`
@@ -206,6 +211,27 @@
     - Worker 设置 → Triggers → Custom Domains → 添加域名
 
 > ⚠️ **重要**：每次更新 `cloudflare-cors-proxy.js` 文件后，需要重新部署到 Cloudflare！
+
+#### 部署 CORS 代理 (VPS / Node.js)
+
+如果您有自己的服务器，或者流量较大，建议使用此方式。
+
+1.  **准备环境**：确保 VPS 已安装 Node.js (v18+)。
+2.  **上传代码**：上传 `proxy-server.js` 到服务器。
+3.  **安装依赖 & 运行**：
+    ```bash
+    # 安装依赖
+    npm install express axios cors dotenv
+    
+    # 启动服务
+    PORT=8080 node proxy-server.js
+    ```
+    *推荐使用 PM2 守护进程：* `pm2 start proxy-server.js --name cors-proxy`
+
+4.  **配置 .env**：
+    ```env
+    CORS_PROXY_URL=http://your-vps-ip:8080
+    ```
 
 #### 代理工作流程图
 
