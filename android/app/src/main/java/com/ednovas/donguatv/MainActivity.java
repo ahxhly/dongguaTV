@@ -3,21 +3,27 @@ package com.ednovas.donguatv;
 import android.content.pm.ActivityInfo;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
-import android.view.WindowManager; // 新增：用于Window全屏Flag
+import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
-import android.webkit.WebChromeClient; // 新增：监听WebView全屏事件
+import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
 
+    private static final String TAG = "MainActivity"; // 日志标签，方便排查问题
     private int statusBarHeight = 0;
     private ViewGroup webViewParent = null;
     private boolean needsManualPadding = false;
-    private boolean isFullScreen = false; // 新增：标记是否处于全屏状态
+    private boolean isFullScreen = false;
+    
+    // 新增：保存H5视频全屏View，解决黑屏问题
+    private View customVideoView;
+    private WebChromeClient.CustomViewCallback videoCallback;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -40,6 +46,7 @@ public class MainActivity extends BridgeActivity {
         if (needsManualPadding) {
             // 获取状态栏高度
             statusBarHeight = getStatusBarHeight();
+            Log.d(TAG, "Android 15+, status bar height: " + statusBarHeight);
         }
     }
 
@@ -47,10 +54,17 @@ public class MainActivity extends BridgeActivity {
     public void onStart() {
         super.onStart();
         
-        // 获取 WebView 并设置其父容器的 padding
+        // 核心修复：添加WebView空值判断，打印日志排查
         WebView webView = getBridge().getWebView();
-        if (webView != null && webView.getParent() instanceof ViewGroup) {
+        if (webView == null) {
+            Log.e(TAG, "WebView is NULL! Bridge object: " + getBridge());
+            return;
+        }
+        Log.d(TAG, "WebView obtained successfully");
+        
+        if (webView.getParent() instanceof ViewGroup) {
             webViewParent = (ViewGroup) webView.getParent();
+            Log.d(TAG, "WebView parent found: " + webViewParent.getClass().getName());
             
             // 只在 Android 15+ 上添加手动 padding
             if (needsManualPadding) {
@@ -63,29 +77,61 @@ public class MainActivity extends BridgeActivity {
                 webViewParent.setBackgroundColor(0xFF141414);
             }
             
-            // 新增：监听WebView全屏事件（兼容H5视频全屏触发）
+            // 核心修复：接管H5视频全屏View，解决黑屏+无声音
             webView.setWebChromeClient(new WebChromeClient() {
-                // H5视频进入全屏时自动触发原生全屏
+                // H5视频进入全屏时
                 @Override
                 public void onShowCustomView(View view, CustomViewCallback callback) {
                     super.onShowCustomView(view, callback);
-                    enterFullscreen(); // 调用原有全屏方法
+                    Log.d(TAG, "H5 video enter fullscreen");
+                    
+                    // 保存视频View和回调，避免丢失
+                    customVideoView = view;
+                    videoCallback = callback;
+                    
+                    // 触发原生全屏
+                    enterFullscreen();
+                    
+                    // 关键：将视频View添加到布局，解决黑屏
+                    if (webViewParent != null) {
+                        webViewParent.addView(view);
+                        webView.setVisibility(View.GONE); // 隐藏原WebView
+                    }
                 }
 
-                // H5视频退出全屏时自动触发原生退出全屏
+                // H5视频退出全屏时
                 @Override
                 public void onHideCustomView() {
                     super.onHideCustomView();
-                    exitFullscreen(); // 调用原有退出全屏方法
+                    Log.d(TAG, "H5 video exit fullscreen");
+                    
+                    // 恢复WebView显示，移除视频View
+                    if (webViewParent != null && customVideoView != null) {
+                        webViewParent.removeView(customVideoView);
+                        webView.setVisibility(View.VISIBLE);
+                    }
+                    
+                    // 释放资源
+                    customVideoView = null;
+                    if (videoCallback != null) {
+                        videoCallback.onCustomViewHidden();
+                        videoCallback = null;
+                    }
+                    
+                    // 触发原生退出全屏
+                    exitFullscreen();
                 }
             });
 
-            // 添加 JavaScript 接口用于全屏控制（保留原有逻辑）
+            // 添加 JavaScript 接口用于全屏控制
             webView.addJavascriptInterface(new FullscreenInterface(), "AndroidFullscreen");
+            Log.d(TAG, "Fullscreen JS interface added");
+        } else {
+            Log.e(TAG, "WebView parent is not a ViewGroup");
         }
     }
     
-    // 获取状态栏高度（像素）- 保留原有逻辑
+    // 获取状态栏高度（像素）
     private int getStatusBarHeight() {
         int result = 0;
         int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
@@ -98,43 +144,43 @@ public class MainActivity extends BridgeActivity {
         return result;
     }
     
-    // 进入全屏模式 - 优化系统UI隐藏逻辑（核心修改）
+    // 进入全屏模式 - 简化逻辑，解决视频渲染冲突
     private void enterFullscreen() {
         runOnUiThread(() -> {
-            // 保留原有：Android 15+ 移除手动padding
+            Log.d(TAG, "Enter fullscreen, isFullScreen: " + isFullScreen);
+            
+            // Android 15+ 移除手动padding
             if (needsManualPadding && webViewParent != null) {
                 webViewParent.setPadding(0, 0, 0, 0);
             }
             
-            Window window = getWindow(); // 新增：获取Window对象
-            // 新增：添加全屏Flag，确保彻底隐藏系统栏
+            Window window = getWindow();
+            // 仅保留必要的全屏Flag，移除冲突的LAYOUT_NO_LIMITS
             window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                     WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS); // 新增：布局延伸到全屏
             
-            // 优化系统UI参数，确保导航栏彻底隐藏
+            // 简化系统UI参数，避免WebView渲染冲突
             View decorView = window.getDecorView();
             decorView.setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY // 粘性沉浸式（核心）
-                | View.SYSTEM_UI_FLAG_FULLSCREEN // 隐藏状态栏
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION // 隐藏导航栏
-                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION // 布局延伸到导航栏区域
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN // 布局延伸到状态栏区域
-                | View.SYSTEM_UI_FLAG_IMMERSIVE // 沉浸式（补充）
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
             );
             
-            // 保留原有：锁定横屏
+            // 锁定横屏
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
             
-            isFullScreen = true; // 标记进入全屏
+            isFullScreen = true;
+            Log.d(TAG, "Fullscreen mode enabled");
         });
     }
     
-    // 退出全屏模式 - 优化系统UI恢复逻辑
+    // 退出全屏模式 - 恢复基础配置
     private void exitFullscreen() {
         runOnUiThread(() -> {
-            // 保留原有：Android 15+ 恢复padding
+            Log.d(TAG, "Exit fullscreen, isFullScreen: " + isFullScreen);
+            
+            // Android 15+ 恢复padding
             if (needsManualPadding && webViewParent != null) {
                 webViewParent.setPadding(
                     webViewParent.getPaddingLeft(),
@@ -144,42 +190,41 @@ public class MainActivity extends BridgeActivity {
                 );
             }
             
-            Window window = getWindow(); // 新增：获取Window对象
-            // 新增：清除全屏Flag
+            Window window = getWindow();
+            // 清除全屏Flag
             window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
             
-            // 优化：完整恢复系统UI状态
+            // 恢复系统UI
             View decorView = window.getDecorView();
-            decorView.setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_VISIBLE // 恢复默认UI
-                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            );
+            decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
             
-            // 保留原有：解锁屏幕方向
+            // 解锁屏幕方向
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
             
-            // 新增：重置状态栏背景色（防止退出全屏后样式异常）
+            // 重置状态栏背景色
             window.setStatusBarColor(0xFF141414);
             
-            isFullScreen = false; // 标记退出全屏
+            isFullScreen = false;
+            Log.d(TAG, "Fullscreen mode disabled");
         });
     }
     
-    // JavaScript 接口类 - 保留原有逻辑
+    // JavaScript 接口类
     public class FullscreenInterface {
         @JavascriptInterface
         public void enter() {
+            Log.d(TAG, "JS call enter fullscreen");
             enterFullscreen();
         }
         
         @JavascriptInterface
         public void exit() {
+            Log.d(TAG, "JS call exit fullscreen");
             exitFullscreen();
         }
     }
     
-    // TV 遥控器返回键处理 - 保留原有逻辑
+    // TV 遥控器返回键处理
     @Override
     public void onBackPressed() {
         WebView webView = getBridge().getWebView();
@@ -210,19 +255,21 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    // 修复：将 protected 改为 public（解决编译报错）
+    // 修复：public修饰符，解决编译报错
     @Override
     public void onResume() {
         super.onResume();
-        if (isFullScreen) { // 检测全屏状态
+        Log.d(TAG, "onResume, isFullScreen: " + isFullScreen);
+        if (isFullScreen) {
             enterFullscreen(); // 重新应用全屏配置
         }
     }
 
-    // 保留 public 修饰符（原本就是 public，无需修改）
+    // 保留public修饰符
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        Log.d(TAG, "onWindowFocusChanged, hasFocus: " + hasFocus + ", isFullScreen: " + isFullScreen);
         if (hasFocus && isFullScreen) {
             enterFullscreen();
         }
