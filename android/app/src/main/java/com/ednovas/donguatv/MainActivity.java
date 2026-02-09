@@ -126,6 +126,8 @@ public class MainActivity extends BridgeActivity {
             
             // 保留原有：锁定横屏
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            
+            isFullScreen = true; // 标记进入全屏
         });
     }
     
@@ -159,6 +161,8 @@ public class MainActivity extends BridgeActivity {
             
             // 新增：重置状态栏背景色（防止退出全屏后样式异常）
             window.setStatusBarColor(0xFF141414);
+            
+            isFullScreen = false; // 标记退出全屏
         });
     }
     
@@ -206,16 +210,16 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    // 新增：页面恢复时重新检查全屏状态（防止切后台后导航栏恢复）
+    // 修复：将 protected 改为 public（解决编译报错）
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
         if (isFullScreen) { // 检测全屏状态
             enterFullscreen(); // 重新应用全屏配置
         }
     }
 
-    // 新增：记录全屏状态（配合onResume使用）
+    // 保留 public 修饰符（原本就是 public，无需修改）
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
