@@ -13,7 +13,7 @@ on:
       app_name:
         description: 'App Name'
         required: true
-        default: 'EShiJie'  # 改：移除中文，默认值改为拼音
+        default: 'E视界'
       version_tag:
         description: 'Version Tag (e.g. v1.0.0)'
         required: true
@@ -52,7 +52,7 @@ jobs:
           if [ -d "public" ]; then
             cp -r public/* www/
           else
-            echo "<html><body>EShiJie</body></html>" > www/index.html  # 改：移除中文
+            echo "<html><body>E视界</body></html>" > www/index.html
           fi
           echo "Created www directory manually as fallback"
 
@@ -203,35 +203,36 @@ jobs:
             echo "Using tag version: ${GITHUB_REF#refs/tags/}"
           fi
 
-      # 改：重命名APK为纯英文（移除中文“E视界”）
-      - name: Rename APK with version (English only)
+      # 保留中文名称，仅修复文件名编码（用URL编码处理中文）
+      - name: Rename APK with version (保留中文)
         run: |
+          # 对中文文件名进行URL编码，避免422错误
+          ENCODED_APP_NAME=$(echo "E视界" | jq -sRr @uri)
           mv android/app/build/outputs/apk/release/app-release.apk \
-             android/app/build/outputs/apk/release/EShiJie-${{ steps.version.outputs.VERSION }}-universal.apk || \
+             android/app/build/outputs/apk/release/${ENCODED_APP_NAME}-${{ steps.version.outputs.VERSION }}-universal.apk || \
           echo "APK rename skipped"
 
-      # 改：Artifact名称改为纯英文
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: EShiJie-apk
+          name: E视界-apk
           path: android/app/build/outputs/apk/release/*.apk
           retention-days: 30
 
-      # 核心修复：Release上传步骤（移除所有中文）
+      # 仅修复文件名编码，保留所有中文内容
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
-          name: "EShiJie ${{ steps.version.outputs.VERSION }}"  # 改：移除中文
+          name: "E视界 ${{ steps.version.outputs.VERSION }}"
           body: |
-            ## 📦 EShiJie ${{ steps.version.outputs.VERSION }}  # 改：移除中文
+            ## 📦 E视界 ${{ steps.version.outputs.VERSION }}
             
             ### 📱 Android APK 下载
             
             | 文件 | 说明 |
             |------|------|
-            | `EShiJie-${{ steps.version.outputs.VERSION }}-universal.apk` | 通用版 (支持所有设备) |  # 改：移除中文
+            | `${ENCODED_APP_NAME}-${{ steps.version.outputs.VERSION }}-universal.apk` | 通用版 (支持所有设备) |
             
             ### 🖥️ 支持的 CPU 架构
             - ✅ `armeabi-v7a` (ARM 32位 - 旧手机/盒子)
@@ -250,8 +251,9 @@ jobs:
             ---
             
             > ⚠️ 首次安装可能需要允许"安装未知来源应用"
-          files: android/app/build/outputs/apk/release/EShiJie-${{ steps.version.outputs.VERSION }}-universal.apk  # 改：指定纯英文文件名，避免通配符
+          files: android/app/build/outputs/apk/release/*.apk
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENCODED_APP_NAME: $(echo "E视界" | jq -sRr @uri)
