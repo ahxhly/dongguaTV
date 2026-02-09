@@ -40,7 +40,8 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          # 核心修改：仅保留 GHCR_TOKEN （确保使用你配置的带 write:packages 权限的秘钥）
+          password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Extract Docker metadata
         id: meta
