@@ -39,9 +39,9 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          # 核心修改：仅保留 GHCR_TOKEN （确保使用你配置的带 write:packages 权限的秘钥）
-          password: ${{ secrets.GHCR_TOKEN }}
+          username: ahxhly  # 固定写死你的GitHub用户名，避免自动变量出错
+          password: ${{ secrets.GHCR_TOKEN }}  # 仅使用你配置的GHCR_TOKEN秘钥
+          logout: true  # 登录后自动登出，提升安全性
 
       - name: Extract Docker metadata
         id: meta
